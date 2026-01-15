@@ -81,7 +81,7 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* Definitions for Task_Senzor */
-osThreadId_t Task_Senzor;
+osThreadId_t Task_SenzorHandle;
 const osThreadAttr_t Task_Senzor_attributes = {
   .name = "Task_Senzor",
   .stack_size = 128 * 4,  // Increased for I2C operations
@@ -95,13 +95,17 @@ const osThreadAttr_t Task_Comunicati_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for DataQueue */
-osMessageQueueId_t AlertQueue;
+osMessageQueueId_t DataQueueHandle;
 const osMessageQueueAttr_t DataQueue_attributes = {
   .name = "DataQueue"
 };
 /* USER CODE BEGIN PV */
 static BMP280_Calib_t bmp280_calib;
 static int32_t t_fine;  // For temperature compensation
+
+/* MUTEX */
+osMutexId_t I2C_MutexHandle;
+osMutexId_t UART_MutexHandle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -133,33 +137,31 @@ uint8_t AHT20_Read(float *temperature, float *humidity);
 // BMP280 Driver Implementation
 // ============================================================================
 
-uint8_t BMP280_Init(void) {
+uint8_t BMP280_Init(void)
+{
     uint8_t chip_id;
-    uint8_t ctrl_meas = 0x27;  // Normal mode, temp x1, press x1
-    uint8_t config = 0xA0;     // Standby 1000ms, filter off
-
-    // Check chip ID
-    if (HAL_I2C_Mem_Read(&hi2c1, BMP280_ADDR, BMP280_ID_REG, 1, &chip_id, 1, 1000) != HAL_OK) {
-        return 0;
-    }
-
-    if (chip_id != 0x58) {  // BMP280 ID
-        return 0;
-    }
-
-    // Soft reset
+    uint8_t ctrl_meas = 0x27;
+    uint8_t config = 0xA0;
     uint8_t reset_cmd = 0xB6;
+
+    osMutexAcquire(I2C_MutexHandle, osWaitForever);
+
+    if (HAL_I2C_Mem_Read(&hi2c1, BMP280_ADDR, BMP280_ID_REG, 1, &chip_id, 1, 1000) != HAL_OK)
+    {
+        osMutexRelease(I2C_MutexHandle);
+        return 0;
+    }
+
     HAL_I2C_Mem_Write(&hi2c1, BMP280_ADDR, BMP280_RESET_REG, 1, &reset_cmd, 1, 1000);
     HAL_Delay(10);
-
-    // Configure sensor
     HAL_I2C_Mem_Write(&hi2c1, BMP280_ADDR, BMP280_CONFIG, 1, &config, 1, 1000);
     HAL_I2C_Mem_Write(&hi2c1, BMP280_ADDR, BMP280_CTRL_MEAS, 1, &ctrl_meas, 1, 1000);
 
-    // Read calibration data
     BMP280_ReadCalibration();
 
-    return 1;
+    osMutexRelease(I2C_MutexHandle);
+
+    return (chip_id == 0x58);
 }
 
 void BMP280_ReadCalibration(void) {
@@ -205,8 +207,10 @@ float BMP280_ReadPressure(void) {
     uint8_t data[3];
     int32_t adc_P;
     int64_t var1, var2, p;
+    osMutexAcquire(I2C_MutexHandle, osWaitForever);
 
     HAL_I2C_Mem_Read(&hi2c1, BMP280_ADDR, 0xF7, 1, data, 3, 1000);
+    osMutexRelease(I2C_MutexHandle);
 
     adc_P = (data[0] << 12) | (data[1] << 4) | (data[2] >> 4);
 
@@ -243,13 +247,11 @@ uint8_t AHT20_Init(void) {
 
     // Send soft reset
     uint8_t reset = AHT20_CMD_SOFTRESET;
+    osMutexAcquire(I2C_MutexHandle, osWaitForever);
     HAL_I2C_Master_Transmit(&hi2c1, AHT20_ADDR, &reset, 1, 1000);
     HAL_Delay(20);
-
-    // Initialize sensor
-    if (HAL_I2C_Master_Transmit(&hi2c1, AHT20_ADDR, init_cmd, 3, 1000) != HAL_OK) {
-        return 0;
-    }
+    HAL_I2C_Master_Transmit(&hi2c1, AHT20_ADDR, init_cmd, 3, 1000);
+    osMutexRelease(I2C_MutexHandle);
 
     HAL_Delay(10);
     return 1;
@@ -260,16 +262,11 @@ uint8_t AHT20_Read(float *temperature, float *humidity) {
     uint8_t data[6];
 
     // Trigger measurement
-    if (HAL_I2C_Master_Transmit(&hi2c1, AHT20_ADDR, trigger_cmd, 3, 1000) != HAL_OK) {
-        return 0;
-    }
-
-    HAL_Delay(80);  // Wait for measurement
-
-    // Read data
-    if (HAL_I2C_Master_Receive(&hi2c1, AHT20_ADDR, data, 6, 1000) != HAL_OK) {
-        return 0;
-    }
+    osMutexAcquire(I2C_MutexHandle, osWaitForever);
+    HAL_I2C_Master_Transmit(&hi2c1, AHT20_ADDR, trigger_cmd, 3, 1000);
+    HAL_Delay(80);
+    HAL_I2C_Master_Receive(&hi2c1, AHT20_ADDR, data, 6, 1000);
+    osMutexRelease(I2C_MutexHandle);
 
     // Check if busy
     if (data[0] & 0x80) {
@@ -356,7 +353,8 @@ int main(void)
   osKernelInitialize();
 
   /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
+  I2C_MutexHandle  = osMutexNew(NULL);
+  UART_MutexHandle = osMutexNew(NULL);
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -369,7 +367,7 @@ int main(void)
 
   /* Create the queue(s) */
   /* creation of DataQueue */
-  AlertQueue = osMessageQueueNew(5, sizeof(SensorData_t), &DataQueue_attributes);
+  DataQueueHandle = osMessageQueueNew(5, sizeof(SensorData_t), &DataQueue_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -377,10 +375,10 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of Task_Senzor */
-  Task_Senzor = osThreadNew(StartDefaultTask, NULL, &Task_Senzor_attributes);
+  Task_SenzorHandle = osThreadNew(StartDefaultTask, NULL, &Task_Senzor_attributes);
 
   /* creation of Task_Comunicati */
-Task_Comunicati = osThreadNew(StartTask02, NULL, &Task_Comunicati_attributes);
+  Task_ComunicatiHandle = osThreadNew(StartTask02, NULL, &Task_Comunicati_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -707,7 +705,7 @@ void StartDefaultTask(void *argument)
     sensor_data.presiune = BMP280_ReadPressure();
 
     // Send to queue
-    osMessageQueuePut(AlertQueue, &sensor_data, 0, 100);
+    osMessageQueuePut(DataQueueHandle, &sensor_data, 0, 100);
 
         // 4. Feedback vizual (Toggle LED)
         HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
@@ -725,7 +723,7 @@ void StartTask02(void *argument)
 
   for(;;)
   {
-    if (osMessageQueueGet(AlertQueue, &received_data, NULL, osWaitForever) == osOK)
+    if (osMessageQueueGet(DataQueueHandle, &received_data, NULL, osWaitForever) == osOK)
     {
       // Convert to integers to save RAM
       int temp = (int)(received_data.temperatura * 10);
@@ -738,7 +736,9 @@ void StartTask02(void *argument)
                         umid/10, umid%10,
                         pres/10, pres%10);
 
+      osMutexAcquire(UART_MutexHandle, osWaitForever);
       HAL_UART_Transmit(&huart1, (uint8_t*)buf, len, 1000);
+      osMutexRelease(UART_MutexHandle);
     }
   }
 }

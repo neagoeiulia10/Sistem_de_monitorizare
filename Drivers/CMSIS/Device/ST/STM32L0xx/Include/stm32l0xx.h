@@ -75,7 +75,7 @@
   /* #define STM32L041xx */   /*!< STM32L041C6, STM32L041K6, STM32L041G6, STM32L041F6, STM32L041E6 Devices                                                                               */
   /* #define STM32L051xx */   /*!< STM32L051K8, STM32L051C6, STM32L051C8, STM32L051R6, STM32L051R8, STM32L051K6, STM32L051T6, STM32L051T8 Devices                                        */
   /* #define STM32L052xx */   /*!< STM32L052K6, STM32L052K8, STM32L052C6, STM32L052C8, STM32L052R6, STM32L052R8, STM32L052T6, STM32L052T8 Devices                                        */
-  /* #define STM32L053xx */   /*!< STM32L053C6, STM32L053C8, STM32L053R6, STM32L053R8 Devices                                                                                            */
+   #define STM32L053xx */   /*!< STM32L053C6, STM32L053C8, STM32L053R6, STM32L053R8 Devices                                                                                            */
   /* #define STM32L062xx */   /*!< STM32L062K8 Devices                                                                                                                                   */
   /* #define STM32L063xx */   /*!< STM32L063C8, STM32L063R8 Devices                                                                                                                      */
   /* #define STM32L071xx */   /*!< STM32L071V8, STM32L071K8, STM32L071VB, STM32L071RB, STM32L071CB, STM32L071KB, STM32L071VZ, STM32L071RZ, STM32L071CZ, STM32L071KZ, STM32L071C8 Devices */
@@ -165,21 +165,21 @@
 
 /** @addtogroup Exported_types
   * @{
-  */ 
-typedef enum 
+  */
+typedef enum
 {
-  RESET = 0, 
+  RESET = 0,
   SET = !RESET
 } FlagStatus, ITStatus;
 
-typedef enum 
+typedef enum
 {
-  DISABLE = 0, 
+  DISABLE = 0,
   ENABLE = !DISABLE
 } FunctionalState;
 #define IS_FUNCTIONAL_STATE(STATE) (((STATE) == DISABLE) || ((STATE) == ENABLE))
 
-typedef enum 
+typedef enum
 {
   SUCCESS = 0,
   ERROR = !SUCCESS
@@ -267,7 +267,7 @@ typedef enum
 /**
   * @}
   */
-  
+
 
 
 
